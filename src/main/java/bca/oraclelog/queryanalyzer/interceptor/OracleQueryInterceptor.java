@@ -10,6 +10,7 @@ import net.ttddyy.dsproxy.listener.QueryExecutionListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import javax.sql.DataSource;
@@ -30,7 +31,9 @@ public class OracleQueryInterceptor implements QueryExecutionListener {
     @Autowired
     private QueryFormatter queryFormatter;
     
+    // Use the original DataSource, not the proxied one
     @Autowired
+    @Qualifier("actualDataSource")
     private DataSource dataSource;
     
     @Override
