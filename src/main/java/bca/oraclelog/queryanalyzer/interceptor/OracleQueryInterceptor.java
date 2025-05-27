@@ -9,8 +9,9 @@ import net.ttddyy.dsproxy.QueryInfo;
 import net.ttddyy.dsproxy.listener.QueryExecutionListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.BeansException;
+import org.springframework.context.ApplicationContext;
+import org.springframework.context.ApplicationContextAware;
 import org.springframework.stereotype.Component;
 
 import javax.sql.DataSource;
@@ -18,27 +19,50 @@ import java.sql.Connection;
 import java.util.List;
 
 @Component
-public class OracleQueryInterceptor implements QueryExecutionListener {
+public class OracleQueryInterceptor implements QueryExecutionListener, ApplicationContextAware {
     
     private static final Logger logger = LoggerFactory.getLogger(OracleQueryInterceptor.class);
     
-    @Autowired
+    private final DataSource dataSource;
+    private ApplicationContext applicationContext;
+    
+    // Lazy-loaded dependencies
     private QueryAnalyzerProperties properties;
-    
-    @Autowired
     private ExplainPlanAnalyzer explainPlanAnalyzer;
-    
-    @Autowired
     private QueryFormatter queryFormatter;
     
-    // Use the original DataSource, not the proxied one
-    @Autowired
-    @Qualifier("actualDataSource")
-    private DataSource dataSource;
+    // Default constructor for Spring component scanning
+    public OracleQueryInterceptor() {
+        this.dataSource = null;
+    }
+    
+    // Constructor for manual instantiation with DataSource
+    public OracleQueryInterceptor(DataSource dataSource) {
+        this.dataSource = dataSource;
+    }
+    
+    @Override
+    public void setApplicationContext(ApplicationContext applicationContext) throws BeansException {
+        this.applicationContext = applicationContext;
+    }
+    
+    private void initializeDependencies() {
+        if (properties == null && applicationContext != null) {
+            try {
+                properties = applicationContext.getBean(QueryAnalyzerProperties.class);
+                explainPlanAnalyzer = applicationContext.getBean(ExplainPlanAnalyzer.class);
+                queryFormatter = applicationContext.getBean(QueryFormatter.class);
+            } catch (Exception e) {
+                logger.warn("Failed to initialize dependencies: {}", e.getMessage());
+            }
+        }
+    }
     
     @Override
     public void beforeQuery(ExecutionInfo execInfo, List<QueryInfo> queryInfoList) {
-        if (!properties.isEnabled() || !"development".equals(properties.getMode())) {
+        initializeDependencies();
+        
+        if (properties == null || !properties.isEnabled() || !"development".equals(properties.getMode())) {
             return;
         }
         
@@ -68,6 +92,11 @@ public class OracleQueryInterceptor implements QueryExecutionListener {
     }
     
     private void analyzeQuery(String query) throws Exception {
+        if (dataSource == null) {
+            logger.warn("DataSource not available for query analysis");
+            return;
+        }
+        
         try (Connection connection = dataSource.getConnection()) {
             QueryExecutionPlan plan = explainPlanAnalyzer.analyzeQuery(connection, query);
             

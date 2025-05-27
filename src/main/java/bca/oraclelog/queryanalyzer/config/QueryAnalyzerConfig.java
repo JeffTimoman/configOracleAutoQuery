@@ -4,9 +4,9 @@ import bca.oraclelog.queryanalyzer.interceptor.OracleQueryInterceptor;
 import net.ttddyy.dsproxy.listener.ChainListener;
 import net.ttddyy.dsproxy.listener.DataSourceQueryCountListener;
 import net.ttddyy.dsproxy.support.ProxyDataSourceBuilder;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.context.ApplicationContext;
+import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
+import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
@@ -18,24 +18,31 @@ import javax.sql.DataSource;
 public class QueryAnalyzerConfig {
     
     @Bean
-    @Qualifier("actualDataSource")
-    public DataSource actualDataSource(DataSource originalDataSource) {
-        return originalDataSource;
+    @ConfigurationProperties("spring.datasource")
+    public DataSourceProperties dataSourceProperties() {
+        return new DataSourceProperties();
+    }
+    
+    @Bean("originalDataSource")
+    public DataSource originalDataSource(DataSourceProperties dataSourceProperties) {
+        return dataSourceProperties.initializeDataSourceBuilder().build();
     }
     
     @Bean
     @Primary
-    public DataSource proxyDataSource(@Qualifier("actualDataSource") DataSource actualDataSource, 
-                                    ApplicationContext applicationContext) {
+    public DataSource proxyDataSource(DataSourceProperties dataSourceProperties) {
+        // Create the original DataSource directly
+        DataSource originalDataSource = dataSourceProperties.initializeDataSourceBuilder().build();
+        
         ChainListener listener = new ChainListener();
         listener.addListener(new DataSourceQueryCountListener());
         
-        // Get the interceptor bean from application context to avoid circular dependency
-        OracleQueryInterceptor queryInterceptor = applicationContext.getBean(OracleQueryInterceptor.class);
+        // Create interceptor with the original DataSource
+        OracleQueryInterceptor queryInterceptor = new OracleQueryInterceptor(originalDataSource);
         listener.addListener(queryInterceptor);
         
         return ProxyDataSourceBuilder
-                .create(actualDataSource)
+                .create(originalDataSource)
                 .name("QueryAnalyzerDS")
                 .listener(listener)
                 .build();
