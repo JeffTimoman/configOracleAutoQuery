@@ -1,3 +1,10 @@
 spring:
     application:
         name: queryanalzer
+
+oracle:
+
+    enabled: true
+    sql: true
+    params: true
+    result: true

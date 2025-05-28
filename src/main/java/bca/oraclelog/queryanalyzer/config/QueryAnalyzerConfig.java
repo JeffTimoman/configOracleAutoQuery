@@ -1,6 +1,6 @@
 package bca.oraclelog.queryanalyzer.config;
 
-import bca.oraclelog.queryanalyzer.interceptor.OracleQueryInterceptor;
+import bca.oraclelog.queryanalyzer.interceptor.OracleQueryDebugInterceptor;
 import net.ttddyy.dsproxy.listener.ChainListener;
 import net.ttddyy.dsproxy.listener.DataSourceQueryCountListener;
 import net.ttddyy.dsproxy.support.ProxyDataSourceBuilder;
@@ -14,7 +14,7 @@ import org.springframework.context.annotation.Primary;
 import javax.sql.DataSource;
 
 @Configuration
-@ConditionalOnProperty(name = "query.analyzer.enabled", havingValue = "true")
+@ConditionalOnProperty(name = "oracle.query.debug.enabled", havingValue = "true")
 public class QueryAnalyzerConfig {
     
     @Bean
@@ -38,7 +38,7 @@ public class QueryAnalyzerConfig {
         listener.addListener(new DataSourceQueryCountListener());
         
         // Create interceptor with the original DataSource
-        OracleQueryInterceptor queryInterceptor = new OracleQueryInterceptor(originalDataSource);
+        OracleQueryDebugInterceptor queryInterceptor = new OracleQueryDebugInterceptor(originalDataSource);
         listener.addListener(queryInterceptor);
         
         return ProxyDataSourceBuilder

@@ -1,9 +1,9 @@
 package bca.oraclelog.queryanalyzer.interceptor;
 
-import bca.oraclelog.queryanalyzer.config.QueryAnalyzerProperties;
-import bca.oraclelog.queryanalyzer.model.QueryExecutionPlan;
-import bca.oraclelog.queryanalyzer.service.ExplainPlanAnalyzer;
-import bca.oraclelog.queryanalyzer.service.QueryFormatter;
+import bca.oraclelog.queryanalyzer.config.QueryDebugProperties;
+import bca.oraclelog.queryanalyzer.model.QueryExecutionSummary;
+import bca.oraclelog.queryanalyzer.service.OracleQueryAnalyzer;
+import bca.oraclelog.queryanalyzer.service.QueryDebugFormatter;
 import net.ttddyy.dsproxy.ExecutionInfo;
 import net.ttddyy.dsproxy.QueryInfo;
 import net.ttddyy.dsproxy.listener.QueryExecutionListener;
@@ -19,25 +19,25 @@ import java.sql.Connection;
 import java.util.List;
 
 @Component
-public class OracleQueryInterceptor implements QueryExecutionListener, ApplicationContextAware {
+public class OracleQueryDebugInterceptor implements QueryExecutionListener, ApplicationContextAware {
     
-    private static final Logger logger = LoggerFactory.getLogger(OracleQueryInterceptor.class);
+    private static final Logger logger = LoggerFactory.getLogger(OracleQueryDebugInterceptor.class);
     
     private final DataSource dataSource;
     private ApplicationContext applicationContext;
     
     // Lazy-loaded dependencies
-    private QueryAnalyzerProperties properties;
-    private ExplainPlanAnalyzer explainPlanAnalyzer;
-    private QueryFormatter queryFormatter;
+    private QueryDebugProperties properties;
+    private OracleQueryAnalyzer queryAnalyzer;
+    private QueryDebugFormatter formatter;
     
     // Default constructor for Spring component scanning
-    public OracleQueryInterceptor() {
+    public OracleQueryDebugInterceptor() {
         this.dataSource = null;
     }
     
     // Constructor for manual instantiation with DataSource
-    public OracleQueryInterceptor(DataSource dataSource) {
+    public OracleQueryDebugInterceptor(DataSource dataSource) {
         this.dataSource = dataSource;
     }
     
@@ -49,11 +49,11 @@ public class OracleQueryInterceptor implements QueryExecutionListener, Applicati
     private void initializeDependencies() {
         if (properties == null && applicationContext != null) {
             try {
-                properties = applicationContext.getBean(QueryAnalyzerProperties.class);
-                explainPlanAnalyzer = applicationContext.getBean(ExplainPlanAnalyzer.class);
-                queryFormatter = applicationContext.getBean(QueryFormatter.class);
+                properties = applicationContext.getBean(QueryDebugProperties.class);
+                queryAnalyzer = applicationContext.getBean(OracleQueryAnalyzer.class);
+                formatter = applicationContext.getBean(QueryDebugFormatter.class);
             } catch (Exception e) {
-                logger.warn("Failed to initialize dependencies: {}", e.getMessage());
+                logger.debug("Failed to initialize query debug dependencies: {}", e.getMessage());
             }
         }
     }
@@ -62,7 +62,8 @@ public class OracleQueryInterceptor implements QueryExecutionListener, Applicati
     public void beforeQuery(ExecutionInfo execInfo, List<QueryInfo> queryInfoList) {
         initializeDependencies();
         
-        if (properties == null || !properties.isEnabled() || !"development".equals(properties.getMode())) {
+        // Check if debug is enabled
+        if (properties == null || !properties.isEnabled()) {
             return;
         }
         
@@ -70,9 +71,9 @@ public class OracleQueryInterceptor implements QueryExecutionListener, Applicati
             String query = queryInfo.getQuery();
             if (isAnalyzableQuery(query)) {
                 try {
-                    analyzeQuery(query);
+                    debugQuery(query);
                 } catch (Exception e) {
-                    logger.warn("Failed to analyze query: {}", e.getMessage());
+                    logger.debug("Failed to debug query: {}", e.getMessage());
                 }
             }
         }
@@ -80,7 +81,7 @@ public class OracleQueryInterceptor implements QueryExecutionListener, Applicati
     
     @Override
     public void afterQuery(ExecutionInfo execInfo, List<QueryInfo> queryInfoList) {
-        // Implementation for post-execution analysis if needed
+        // Post-execution debugging if needed in the future
     }
     
     private boolean isAnalyzableQuery(String query) {
@@ -91,28 +92,35 @@ public class OracleQueryInterceptor implements QueryExecutionListener, Applicati
                upperQuery.startsWith("DELETE");
     }
     
-    private void analyzeQuery(String query) throws Exception {
+    private void debugQuery(String query) throws Exception {
         if (dataSource == null) {
-            logger.warn("DataSource not available for query analysis");
+            logger.debug("DataSource not available for query debugging");
             return;
         }
         
         try (Connection connection = dataSource.getConnection()) {
-            QueryExecutionPlan plan = explainPlanAnalyzer.analyzeQuery(connection, query);
+            QueryExecutionSummary summary = queryAnalyzer.analyzeQuery(connection, query);
             
+            // Add query text if enabled
+            if (properties.isIncludeQueryText()) {
+                summary.setOriginalQuery(query);
+            }
+            
+            // Add stack trace if enabled
             if (properties.isIncludeStackTrace()) {
-                plan.setStackTrace(getCurrentStackTrace());
+                summary.setStackTrace(getCurrentStackTrace());
             }
             
-            String formattedOutput = queryFormatter.formatAnalysis(plan);
+            String debugOutput = formatter.formatQueryDebug(summary);
             
+            // Output to console if enabled
             if (properties.isLogToConsole()) {
-                System.out.println(formattedOutput);
+                System.out.println(debugOutput);
             }
             
+            // Output to file if enabled
             if (properties.isLogToFile()) {
-                // Log to file implementation
-                logger.info(formattedOutput);
+                logger.info(debugOutput);
             }
         }
     }
@@ -121,10 +129,16 @@ public class OracleQueryInterceptor implements QueryExecutionListener, Applicati
         StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
         StringBuilder sb = new StringBuilder();
         
-        // Skip first few elements (getStackTrace, getCurrentStackTrace, analyzeQuery)
-        for (int i = 4; i < Math.min(stackTrace.length, 10); i++) {
+        // Skip internal methods and focus on application code
+        for (int i = 4; i < Math.min(stackTrace.length, 8); i++) {
             StackTraceElement element = stackTrace[i];
-            if (!element.getClassName().contains("queryanalyzer")) {
+            String className = element.getClassName();
+            
+            // Skip framework and proxy classes
+            if (!className.contains("queryanalyzer") && 
+                !className.contains("dsproxy") && 
+                !className.contains("springframework.jdbc") &&
+                !className.contains("hikari")) {
                 sb.append("  at ").append(element.toString()).append("\n");
             }
         }
